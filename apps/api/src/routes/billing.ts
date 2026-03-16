@@ -2,11 +2,14 @@
  * Billing Routes - Stripe integration
  */
 
-import { Router, Request, Response } from "express";
+import express, { Router, Request, Response } from "express";
 import Stripe from "stripe";
 import { prisma } from "../lib/db";
 
 const router = Router();
+
+// Apply JSON parser for regular billing API routes, but skip for webhook
+const jsonParser = express.json();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_...", {
   apiVersion: "2024-11-20.acacia",
@@ -23,7 +26,7 @@ const PLANS = {
  * GET /api/billing/plans
  * Get available plans
  */
-router.get("/plans", (_req: Request, res: Response) => {
+router.get("/plans", jsonParser, (_req: Request, res: Response) => {
   res.json({
     plans: Object.entries(PLANS).map(([id, plan]) => ({
       id,
@@ -38,7 +41,7 @@ router.get("/plans", (_req: Request, res: Response) => {
  * POST /api/billing/create-checkout
  * Create Stripe checkout session
  */
-router.post("/create-checkout", async (req: Request, res: Response) => {
+router.post("/create-checkout", jsonParser, async (req: Request, res: Response) => {
   try {
     const { userId, planId } = req.body;
     
@@ -81,7 +84,7 @@ router.post("/create-checkout", async (req: Request, res: Response) => {
  * POST /api/billing/create-portal
  * Create Stripe billing portal session
  */
-router.post("/create-portal", async (req: Request, res: Response) => {
+router.post("/create-portal", jsonParser, async (req: Request, res: Response) => {
   try {
     const { userId } = req.body;
     
@@ -107,7 +110,7 @@ router.post("/create-portal", async (req: Request, res: Response) => {
  * GET /api/billing/subscription/:userId
  * Get user's subscription status
  */
-router.get("/subscription/:userId", async (req: Request, res: Response) => {
+router.get("/subscription/:userId", jsonParser, async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
     
@@ -135,7 +138,7 @@ router.get("/subscription/:userId", async (req: Request, res: Response) => {
  * POST /api/billing/webhook
  * Handle Stripe webhooks
  */
-router.post("/webhook", async (req: Request, res: Response) => {
+router.post("/webhook", express.raw({ type: "application/json" }), async (req: Request, res: Response) => {
   const sig = req.headers["stripe-signature"] as string;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 

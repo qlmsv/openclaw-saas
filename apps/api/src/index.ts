@@ -38,12 +38,14 @@ app.get("/health", (_req, res) => {
 // Better Auth endpoint (mounted at /api/auth)
 app.use("/api/auth", authRoutes);
 
-// JSON parser for non-auth API routes
+// API Routes that need raw body (e.g. Stripe Webhooks)
+app.use("/api/billing", billingRoutes);
+
+// JSON parser for non-auth incoming API routes
 app.use(express.json({ limit: "10mb" }));
 
-// API Routes
+// Remaining API Routes
 app.use("/api/containers", containerRoutes);
-app.use("/api/billing", billingRoutes);
 app.use("/api/ai", aiRoutes);
 
 // Admin stats

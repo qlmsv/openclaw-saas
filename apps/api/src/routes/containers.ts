@@ -96,6 +96,7 @@ router.post("/create-default", async (req: Request, res: Response) => {
         skillPacks: JSON.stringify(skillPacks),
         memoryLimit: "512m",
         cpuLimit: "0.5",
+        gatewayToken: container.gatewayToken,
       },
     });
 
@@ -153,6 +154,7 @@ router.post("/", async (req: Request, res: Response) => {
         skillPacks: JSON.stringify(skillPacks),
         memoryLimit,
         cpuLimit,
+        gatewayToken: container.gatewayToken,
       },
     });
 
@@ -194,7 +196,12 @@ router.post("/:id/message", async (req: Request, res: Response) => {
       return;
     }
 
-    const response = await dockerClient.sendMessage(req.params.id, message);
+    // Attempt to get gatewayToken from DB
+    const dbContainer = await prisma.container.findUnique({
+      where: { containerId: req.params.id },
+    });
+
+    const response = await dockerClient.sendMessage(req.params.id.replace("openclaw-", ""), message, dbContainer?.gatewayToken || undefined);
     res.json({ response });
   } catch (error) {
     console.error("Send message error:", error);

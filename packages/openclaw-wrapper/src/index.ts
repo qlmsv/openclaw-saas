@@ -5,150 +5,303 @@
  * for each user in a secure, isolated manner.
  */
 
-export interface UserConfig {
+import Dockerode from "dockerode";
+import crypto from "crypto";
+
+const docker = new Dockerode({
+  socketPath: process.env.DOCKER_SOCKET || "/var/run/docker.sock",
+});
+
+export interface UserContainerConfig {
   userId: string;
   email: string;
   skillPacks: string[];
-  connections: UserConnections;
-  settings: UserSettings;
-}
-
-export interface UserConnections {
-  discord?: {
-    channelId: string;
-    webhookUrl?: string;
-  };
-  telegram?: {
-    botToken: string;
-    chatId: string;
-  };
-  gmail?: {
-    accessToken: string;
-    refreshToken: string;
-  };
-}
-
-export interface UserSettings {
-  model: string;
-  timezone: string;
-  workingHours?: {
-    start: string; // "09:00"
-    end: string; // "17:00"
-  };
+  environment: Record<string, string>;
+  aiProvider?: string;
+  aiApiKey?: string;
+  memoryLimit?: string;
+  cpuLimit?: string;
 }
 
 export interface ContainerInfo {
-  containerId: string;
-  userId: string;
+  id: string;
+  name: string;
   status: "running" | "stopped" | "error";
+  image: string;
   createdAt: Date;
   lastActivity: Date;
+  ports: Record<string, number>;
+  gatewayToken?: string;
 }
 
-export interface SpawnOptions {
-  userConfig: UserConfig;
-  resources?: {
-    memoryLimit?: string; // e.g., "512m"
-    cpuLimit?: string; // e.g., "0.5"
-    storageLimit?: string; // e.g., "1g"
-  };
-}
-
-export interface MessageResult {
-  success: boolean;
-  response?: string;
-  error?: string;
-}
-
-// Placeholder types - would be implemented with actual Docker SDK
-export class OpenClawWrapper {
-  private containers: Map<string, ContainerInfo> = new Map();
+export class DockerClient {
+  private readonly imageName = "coollabsio/openclaw:latest";
+  private readonly networkName = "openclaw-network";
 
   /**
-   * Spawn a new OpenClaw container for a user
+   * Initialize Docker network
    */
-  async spawnContainer(options: SpawnOptions): Promise<ContainerInfo> {
-    // Implementation would:
-    // 1. Generate user config file
-    // 2. Create Docker container from OpenClaw image
-    // 3. Mount user config and data volumes
-    // 4. Start container with resource limits
-    // 5. Return container info
-    
-    const container: ContainerInfo = {
-      containerId: `openclaw-${options.userConfig.userId}`,
-      userId: options.userConfig.userId,
-      status: "running",
-      createdAt: new Date(),
-      lastActivity: new Date(),
-    };
-
-    this.containers.set(options.userConfig.userId, container);
-    return container;
-  }
-
-  /**
-   * Stop a user's container
-   */
-  async stopContainer(userId: string): Promise<boolean> {
-    const container = this.containers.get(userId);
-    if (!container) return false;
-    
-    // Implementation would stop the Docker container
-    container.status = "stopped";
-    return true;
-  }
-
-  /**
-   * Send a message to a user's agent
-   */
-  async sendMessage(userId: string, message: string): Promise<MessageResult> {
-    const container = this.containers.get(userId);
-    if (!container || container.status !== "running") {
-      return { success: false, error: "Container not running" };
+  async init(): Promise<void> {
+    try {
+      await this.ensureNetwork();
+      await this.ensureImage();
+    } catch (error) {
+      console.warn("Docker init warning:", error);
     }
+  }
 
-    // Implementation would:
-    // 1. Send message to container (exec command or API)
-    // 2. Wait for response
-    // 3. Return result
+  /**
+   * Ensure Docker network exists
+   */
+  private async ensureNetwork(): Promise<void> {
+    try {
+      await docker.getNetwork(this.networkName).inspect();
+    } catch {
+      try {
+        await docker.createNetwork({
+          Name: this.networkName,
+          Driver: "bridge",
+          CheckDuplicate: true,
+          IPAM: {
+            Driver: "default",
+            Config: [{ Subnet: "172.20.0.0/16" }],
+          },
+        });
+      } catch (error: any) {
+        if (error?.statusCode === 403 && error?.json?.message?.includes("Pool overlaps")) {
+          await docker.createNetwork({
+            Name: this.networkName,
+            Driver: "bridge",
+            CheckDuplicate: true,
+          });
+          return;
+        }
+        throw error;
+      }
+    }
+  }
 
+  /**
+   * Ensure OpenClaw image exists
+   */
+  private async ensureImage(): Promise<void> {
+    try {
+      await docker.getImage(this.imageName).inspect();
+      console.log("OpenClaw image found:", this.imageName);
+    } catch {
+      console.log(`Pulling OpenClaw image: ${this.imageName}`);
+      await docker.pull(this.imageName);
+    }
+  }
+
+  /**
+   * Create a container for a user
+   */
+  async createContainer(config: UserContainerConfig): Promise<ContainerInfo> {
+    const containerName = `openclaw-${config.userId}`;
+
+    // Build environment variables for OpenClaw
+    const aiApiKey = config.aiApiKey || process.env.MINIMAX_API_KEY || "";
+    
+    // Generate secure credentials
+    const securePassword = crypto.randomBytes(16).toString('hex');
+    const gatewayToken = crypto.randomBytes(32).toString('hex');
+
+    const envVars = [
+      `USER_ID=${config.userId}`,
+      `USER_EMAIL=${config.email}`,
+      // AI Provider - Default to MiniMax
+      `MINIMAX_API_KEY=${aiApiKey}`,
+      // Auth
+      `AUTH_PASSWORD=${securePassword}`,
+      `OPENCLAW_GATEWAY_TOKEN=${gatewayToken}`,
+      // Network
+      `OPENCLAW_GATEWAY_BIND=lan`,
+      `OPENCLAW_GATEWAY_PORT=18789`,
+    ];
+
+    const container = await docker.createContainer({
+      name: containerName,
+      Image: this.imageName,
+      Env: envVars,
+      HostConfig: {
+        Memory: config.memoryLimit ? this.parseMemory(config.memoryLimit) : 512 * 1024 * 1024,
+        CpuPeriod: 100000,
+        CpuQuota: config.cpuLimit ? parseFloat(config.cpuLimit) * 100000 : 50000,
+        NetworkMode: this.networkName,
+        AutoRemove: false,
+      },
+      Labels: {
+        userId: config.userId,
+        type: "openclaw",
+        app: "openclaw-saas",
+      },
+      ExposedPorts: {
+        "18789/tcp": {},
+        "8080/tcp": {},
+      },
+    });
+
+    await container.start();
+
+    const info = await container.inspect();
+    
     return {
-      success: true,
-      response: `[Demo] Received: ${message}`,
+      id: info.Id,
+      name: containerName,
+      status: info.State?.Running ? "running" : "stopped",
+      image: this.imageName,
+      createdAt: new Date(info.Created || Date.now()),
+      lastActivity: new Date(info.State?.FinishedAt || info.Created || Date.now()),
+      ports: info.NetworkSettings?.Ports || {},
+      gatewayToken,
     };
   }
 
   /**
-   * Get all containers
+   * Get container info
+   */
+  async getContainer(userId: string): Promise<ContainerInfo | null> {
+    const containerName = `openclaw-${userId}`;
+    try {
+      const container = docker.getContainer(containerName);
+      const info = await container.inspect();
+      return {
+        id: info.Id,
+        name: containerName,
+        status: info.State?.Running ? "running" : "stopped",
+        image: info.Config?.Image || this.imageName,
+        createdAt: new Date(info.Created || Date.now()),
+        lastActivity: new Date(info.State?.FinishedAt || info.Created || Date.now()),
+        ports: info.NetworkSettings?.Ports || {},
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * List all user containers
    */
   async listContainers(): Promise<ContainerInfo[]> {
-    return Array.from(this.containers.values());
+    try {
+      const containers = await docker.listContainers({
+        filters: { label: ["type=openclaw"] },
+      });
+
+      return containers.map((c) => ({
+        id: c.Id,
+        name: c.Names[0]?.replace("/", "") || "unknown",
+        status: c.State === "running" ? "running" : "stopped",
+        image: c.Image,
+        createdAt: new Date(c.Created ? c.Created * 1000 : Date.now()),
+        lastActivity: new Date(),
+        ports: c.Ports.reduce((acc, p) => {
+          if (p.PublicPort) acc[p.PrivatePort] = p.PublicPort;
+          return acc;
+        }, {} as Record<string, number>),
+      }));
+    } catch {
+      return [];
+    }
   }
 
   /**
-   * Get a specific container
+   * Send message to user's agent (via HTTP API)
    */
-  async getContainer(userId: string): Promise<ContainerInfo | undefined> {
-    return this.containers.get(userId);
+  async sendMessage(userId: string, message: string, gatewayToken?: string): Promise<string> {
+    const containerName = `openclaw-${userId}`;
+    try {
+      const container = docker.getContainer(containerName);
+      const info = await container.inspect();
+      const port = info.NetworkSettings?.Ports?.["18789/tcp"]?.[0]?.PublicPort;
+      
+      if (!port) {
+        return "Container running but no gateway port exposed";
+      }
+
+      if (!gatewayToken) {
+        return "Error: Gateway token is required but missing";
+      }
+
+      // Call the gateway API
+      const gatewayUrl = `http://localhost:${port}`;
+      const response = await fetch(`${gatewayUrl}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${gatewayToken}`,
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        return `Error: ${response.statusText}`;
+      }
+
+      const data = await response.json();
+      return data.response || JSON.stringify(data);
+    } catch (error) {
+      return `Failed to send message: ${error}`;
+    }
   }
 
   /**
-   * Delete a user's container and data
+   * Stop container
+   */
+  async stopContainer(userId: string): Promise<boolean> {
+    const containerName = `openclaw-${userId}`;
+    try {
+      const container = docker.getContainer(containerName);
+      await container.stop({ t: 30 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Delete container
    */
   async deleteContainer(userId: string): Promise<boolean> {
-    const container = this.containers.get(userId);
-    if (!container) return false;
+    const containerName = `openclaw-${userId}`;
+    try {
+      const container = docker.getContainer(containerName);
+      try {
+        await container.stop({ t: 10 });
+      } catch { /* ignore if already stopped */ }
+      await container.remove({ v: true, force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
-    // Implementation would:
-    // 1. Stop container
-    // 2. Remove container
-    // 3. Delete user data volumes
-    // 4. Remove from registry
+  /**
+   * Get container logs
+   */
+  async getLogs(userId: string, tail: number = 100): Promise<string> {
+    const containerName = `openclaw-${userId}`;
+    try {
+      const container = docker.getContainer(containerName);
+      const logs = await container.logs({ stdout: true, stderr: true, tail });
+      return logs.toString();
+    } catch {
+      return "No logs available";
+    }
+  }
 
-    this.containers.delete(userId);
-    return true;
+  /**
+   * Parse memory string to bytes
+   */
+  private parseMemory(str: string): number {
+    const units: Record<string, number> = {
+      b: 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4,
+    };
+    const match = str.toLowerCase().match(/^(\d+)([kmgt]?)$/);
+    if (!match) return 512 * 1024 * 1024;
+    return parseInt(match[1]) * (units[match[2]] || 1);
   }
 }
 
-export const openclawWrapper = new OpenClawWrapper();
+export const dockerClient = new DockerClient();
