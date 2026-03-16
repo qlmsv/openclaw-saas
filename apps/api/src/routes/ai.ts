@@ -3,12 +3,12 @@
  */
 
 import { Router, Request, Response } from "express";
-import { streamText, CoreMessage, generateText } from "ai";
+import { streamText, generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { prisma } from "../lib/db";
 import { z } from "zod";
 
-const router = Router();
+const router: Router = Router();
 
 const chatSchema = z.object({
   userId: z.string(),
@@ -83,7 +83,7 @@ Guidelines:
 - Ask clarifying questions when requirements are unclear
 - Always prefer action over inaction`;
 
-    const messages: CoreMessage[] = [
+    const messages: any[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: message },
     ];
@@ -107,11 +107,11 @@ Guidelines:
           onFinish: () => {
             res.end();
           },
-          onError: (error) => {
+          onError: (error: any) => {
             console.error("Streaming error:", error);
             res.end();
           },
-        });
+        } as any);
 
         for await (const chunk of result.textStream) {
           res.write(chunk);
@@ -132,7 +132,7 @@ Guidelines:
           : openai(modelId) as any,
         messages,
         maxTokens: modelConfig?.maxOutput || 4096,
-      });
+      } as any);
 
       res.json({
         text: result.text,
@@ -170,7 +170,7 @@ router.post("/generate", async (req: Request, res: Response) => {
         : openai(model) as any,
       messages: [{ role: "user", content: prompt }],
       maxTokens: modelConfig?.maxOutput || 4096,
-    });
+    } as any);
 
     res.json({
       text: result.text,
@@ -211,7 +211,7 @@ router.post("/analyze", async (req: Request, res: Response) => {
         : openai(model) as any,
       messages: [{ role: "user", content: prompts[task] || prompts.summarize }],
       maxTokens: modelConfig?.maxOutput || 4096,
-    });
+    } as any);
 
     res.json({
       text: result.text,
@@ -243,9 +243,9 @@ router.post("/complete", async (req: Request, res: Response) => {
       model: modelConfig?.provider === "minimax"
         ? minimax(model)
         : openai(model) as any,
-      messages: messages as CoreMessage[],
+      messages: messages as any[],
       maxTokens: modelConfig?.maxOutput || 4096,
-    });
+    } as any);
 
     res.json({
       text: result.text,

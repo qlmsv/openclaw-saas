@@ -6,13 +6,13 @@ import express, { Router, Request, Response } from "express";
 import Stripe from "stripe";
 import { prisma } from "../lib/db";
 
-const router = Router();
+const router: Router = Router();
 
 // Apply JSON parser for regular billing API routes, but skip for webhook
 const jsonParser = express.json();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_...", {
-  apiVersion: "2024-11-20.acacia",
+  apiVersion: "2025-02-24.acacia" as any,
 });
 
 const PLANS = {
@@ -114,14 +114,14 @@ router.get("/subscription/:userId", jsonParser, async (req: Request, res: Respon
   try {
     const { userId } = req.params;
     
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({ where: { id: userId as string } });
     if (!user) {
       res.status(404).json({ error: "User not found" });
       return;
     }
 
-    const subscription = await prisma.subscription.findUnique({
-      where: { userId },
+    const subscription = await prisma.subscription.findFirst({
+      where: { userId: userId as string },
     });
 
     res.json({

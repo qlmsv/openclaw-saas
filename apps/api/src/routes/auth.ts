@@ -6,7 +6,7 @@ import { Router } from "express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "../lib/auth";
 
-const router = Router();
+const router: Router = Router();
 const authHandler = toNodeHandler(auth);
 
 // Delegate every /api/auth/* request to Better Auth's handler.

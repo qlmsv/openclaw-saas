@@ -8,9 +8,10 @@ import { prisma } from "../lib/db";
 import { z } from "zod";
 import { auth } from "../lib/auth";
 
-const router = Router();
+const router: Router = Router();
 
 const createContainerSchema = z.object({
+  userId: z.string(),
   skillPacks: z.array(z.string()).min(1),
   environment: z.record(z.string()).optional(),
   memoryLimit: z.string().optional(),
@@ -171,7 +172,7 @@ router.post("/", async (req: Request, res: Response) => {
  */
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const container = await dockerClient.getContainer(req.params.id);
+    const container = await dockerClient.getContainer(req.params.id as string);
     if (!container) {
       res.status(404).json({ error: "Container not found" });
       return;
@@ -197,11 +198,11 @@ router.post("/:id/message", async (req: Request, res: Response) => {
     }
 
     // Attempt to get gatewayToken from DB
-    const dbContainer = await prisma.container.findUnique({
-      where: { containerId: req.params.id },
+    const dbContainer = await prisma.container.findFirst({
+      where: { containerId: req.params.id as string },
     });
 
-    const response = await dockerClient.sendMessage(req.params.id.replace("openclaw-", ""), message, dbContainer?.gatewayToken || undefined);
+    const response = await dockerClient.sendMessage((req.params.id as string).replace("openclaw-", ""), message, dbContainer?.gatewayToken || undefined);
     res.json({ response });
   } catch (error) {
     console.error("Send message error:", error);
@@ -215,7 +216,7 @@ router.post("/:id/message", async (req: Request, res: Response) => {
  */
 router.post("/:id/stop", async (req: Request, res: Response) => {
   try {
-    const success = await dockerClient.stopContainer(req.params.id);
+    const success = await dockerClient.stopContainer(req.params.id as string);
     if (!success) {
       res.status(404).json({ error: "Container not found" });
       return;
@@ -234,7 +235,7 @@ router.post("/:id/stop", async (req: Request, res: Response) => {
  */
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
-    const success = await dockerClient.deleteContainer(req.params.id);
+    const success = await dockerClient.deleteContainer(req.params.id as string);
     if (!success) {
       res.status(404).json({ error: "Container not found" });
       return;
@@ -242,7 +243,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 
     // Remove from database
     await prisma.container.deleteMany({
-      where: { containerId: req.params.id },
+      where: { containerId: req.params.id as string },
     });
 
     res.json({ success: true });
@@ -259,7 +260,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 router.get("/:id/logs", async (req: Request, res: Response) => {
   try {
     const tail = parseInt(req.query.tail as string) || 100;
-    const logs = await dockerClient.getLogs(req.params.id, tail);
+    const logs = await dockerClient.getLogs(req.params.id as string, tail);
     res.json({ logs });
   } catch (error) {
     console.error("Get logs error:", error);

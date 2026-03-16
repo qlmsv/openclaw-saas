@@ -30,7 +30,7 @@ export interface ContainerInfo {
   image: string;
   createdAt: Date;
   lastActivity: Date;
-  ports: Record<string, number>;
+  ports: any;
   gatewayToken?: string;
 }
 
@@ -199,7 +199,7 @@ export class DockerClient {
         ports: c.Ports.reduce((acc, p) => {
           if (p.PublicPort) acc[p.PrivatePort] = p.PublicPort;
           return acc;
-        }, {} as Record<string, number>),
+        }, {} as any),
       }));
     } catch {
       return [];
@@ -214,7 +214,7 @@ export class DockerClient {
     try {
       const container = docker.getContainer(containerName);
       const info = await container.inspect();
-      const port = info.NetworkSettings?.Ports?.["18789/tcp"]?.[0]?.PublicPort;
+      const port = info.NetworkSettings?.Ports?.["18789/tcp"]?.[0]?.HostPort;
       
       if (!port) {
         return "Container running but no gateway port exposed";
@@ -240,7 +240,7 @@ export class DockerClient {
       }
 
       const data = await response.json();
-      return data.response || JSON.stringify(data);
+      return (data as any).response || JSON.stringify(data);
     } catch (error) {
       return `Failed to send message: ${error}`;
     }

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.26",
+    "@openclaw-saas/openclaw-wrapper": "workspace:*",
     "@prisma/adapter-pg": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "ai": "^6.0.79",
@@ -23,14 +24,14 @@
     "express": "^4.21.0",
     "helmet": "^8.0.0",
     "pg": "^8.18.0",
-    "stripe": "^17.0.0",
-    "@openclaw-saas/openclaw-wrapper": "workspace:*"
+    "stripe": "^17.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.0",
     "@types/dockerode": "^4.0.1",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.18.0",
     "prisma": "^7.4.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
